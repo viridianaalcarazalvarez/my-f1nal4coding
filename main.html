@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Main Page</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000000;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #video-element {
+            display: none;
+        }
+
+        #instruction-text {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            font-size: 1.4rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-weight: bold;
+            font-style: italic;
+            color: #ffffff;
+            opacity: 0.7;
+            pointer-events: none;
+            text-align: center;
+        }
+
+        #blurred-echoes-text {
+            position: fixed;
+            top: 50px;
+            left: 50px;
+            z-index: 1001;
+            font-size: 6rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-weight: bold;
+            font-style: italic;
+            color: #ffffff;
+            text-align: left;
+            transition: filter 1s ease-out, opacity 1s ease-out;
+            filter: blur(0px);
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        #blurred-echoes-text.blurred {
+            filter: blur(20px);
+            opacity: 0;
+        }
+
+        #phrases-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .phrase-text {
+            position: absolute;
+            font-size: 2.4rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-weight: bold;
+            font-style: italic;
+            color: #ffffff;
+            opacity: 0;
+            text-align: left;
+            white-space: nowrap;
+            animation-name: phraseFade;
+            animation-fill-mode: both;
+        }
+
+        @keyframes phraseFade {
+            0%   { opacity: 0; }
+            15%  { opacity: 0.35; }
+            80%  { opacity: 0.35; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="blurred-echoes-text">BLURRED ECHOES</div>
+    <div id="instruction-text">press spacebar for new memory</div>
+    <video id="video-element" loop muted playsinline></video>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setClearColor(0x000000);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Camera position - horizontal orientation (adjusted for larger grid)
+        camera.position.set(0, 12, 55);
+        camera.lookAt(0, 0, 0);
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 10, 10);
+        scene.add(directionalLight);
+
+        // Create 2500 white spheres in a 50x50 grid (horizontal orientation)
+        const sphereGeometry = new THREE.SphereGeometry(0.22, 32, 32);
+
+        const gridWidth = 50;  // columns (horizontal)
+        const gridHeight = 50; // rows (vertical)
+        const spacing = 1.3; // Increased spacing to scatter spheres further apart
+        const startOffsetX = -(gridWidth - 1) * spacing / 2;
+        const startOffsetY = -(gridHeight - 1) * spacing / 2;
+
+        const spheres = [];
+        const basePositions = []; // Store base positions and scatter info
+
+        // Create a parent group for all spheres to rotate the entire grid
+        const sphereGroup = new THREE.Group();
+        // Rotate the group to face up more (rotate around X-axis)
+        sphereGroup.rotation.x = -1.0; // Tilt upward a bit more (~-57 degrees)
+        // Lift grid slightly upward to leave space for bottom instruction text (subtle offset)
+        sphereGroup.position.y = 1;
+        scene.add(sphereGroup);
+        
+        // Track rotation state for smooth animation
+        let targetRotationX = -Math.PI / 4; // Start with upward tilt
+        let isRotating = false;
+
+        for (let i = 0; i < gridWidth; i++) {
+            for (let j = 0; j < gridHeight; j++) {
+                const sphereMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xffffff,
+                    metalness: 0.3,
+                    roughness: 0.4,
+                    emissive: 0x000000,
+                    emissiveIntensity: 0
+                });
+                const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                
+                // Check if sphere is in outer 3 rows/columns
+                const isOuterEdge = i < 3 || i >= gridWidth - 3 || j < 3 || j >= gridHeight - 3;
+                
+                // Calculate distance from edge (0 = edge, 1 = center)
+                const distFromEdgeX = Math.min(i, gridWidth - 1 - i) / (gridWidth / 2);
+                const distFromEdgeY = Math.min(j, gridHeight - 1 - j) / (gridHeight / 2);
+                const distFromEdge = Math.min(distFromEdgeX, distFromEdgeY);
+                
+                // Base position
+                const baseX = startOffsetX + i * spacing;
+                const baseY = startOffsetY + j * spacing;
+                const baseZ = 0;
+                
+                // Add scatter to outer spheres
+                let scatterX = 0;
+                let scatterY = 0;
+                let scatterZ = 0;
+                
+                if (isOuterEdge) {
+                    // Random scatter for outer spheres (more scatter for corners)
+                    const scatterAmount = 0.5; // Adjust this to control scatter intensity
+                    scatterX = (Math.random() - 0.5) * scatterAmount;
+                    scatterY = (Math.random() - 0.5) * scatterAmount;
+                    scatterZ = (Math.random() - 0.5) * scatterAmount * 0.5;
+                }
+                
+                // Store base position and scatter info
+                basePositions.push({
+                    x: baseX,
+                    y: baseY,
+                    z: baseZ,
+                    scatterX: scatterX,
+                    scatterY: scatterY,
+                    scatterZ: scatterZ,
+                    isOuterEdge: isOuterEdge,
+                    distFromEdge: distFromEdge
+                });
+                
+                // Set initial position with scatter
+                sphere.position.x = baseX + scatterX;
+                sphere.position.y = baseY + scatterY;
+                sphere.position.z = baseZ + scatterZ;
+                
+                sphereGroup.add(sphere);
+                spheres.push(sphere);
+            }
+        }
+
+        // Video setup
+        let video = document.getElementById('video-element');
+        let videoTexture = null;
+        let videoCanvas = null;
+        let videoContext = null;
+        let isVideoLoaded = false;
+
+        // Create canvas for pixel sampling
+        function setupVideoCanvas() {
+            videoCanvas = document.createElement('canvas');
+            videoCanvas.width = gridWidth;
+            videoCanvas.height = gridHeight;
+            videoContext = videoCanvas.getContext('2d');
+        }
+
+        setupVideoCanvas();
+
+        // Function to load and process video
+        function loadVideo(videoUrl) {
+            video.src = videoUrl;
+            video.play().then(() => {
+                isVideoLoaded = true;
+                console.log('Video loaded and playing');
+            }).catch(err => {
+                console.error('Error playing video:', err);
+            });
+        }
+
+        // Video rotation angle (in radians)
+        // 0 = no rotation, Math.PI/2 = 90° clockwise, -Math.PI/2 = 90° counter-clockwise, Math.PI = 180°
+        const videoRotation = Math.PI / 2; // 90 degrees clockwise
+
+        // Sample video pixels and update sphere colors
+        function updateSpheresFromVideo() {
+            if (!isVideoLoaded || video.readyState < 2) return;
+
+            // Save context state
+            videoContext.save();
+            
+            // Clear canvas
+            videoContext.clearRect(0, 0, gridWidth, gridHeight);
+            
+            // Translate to center for rotation
+            videoContext.translate(gridWidth / 2, gridHeight / 2);
+            
+            // Rotate the video
+            videoContext.rotate(videoRotation);
+            
+            // Flip video horizontally to the right (if needed)
+            videoContext.scale(-1, 1);
+            
+            // Translate back and draw video frame
+            videoContext.translate(-gridWidth / 2, -gridHeight / 2);
+            videoContext.drawImage(video, 0, 0, gridWidth, gridHeight);
+            
+            // Restore context state
+            videoContext.restore();
+
+            // Get pixel data
+            const imageData = videoContext.getImageData(0, 0, gridWidth, gridHeight);
+            const pixels = imageData.data;
+
+            // Update each sphere based on corresponding pixel
+            spheres.forEach((sphere, index) => {
+                const pixelIndex = index * 4;
+                const r = pixels[pixelIndex] / 255;
+                const g = pixels[pixelIndex + 1] / 255;
+                const b = pixels[pixelIndex + 2] / 255;
+                const brightness = (r + g + b) / 3;
+
+                // Create color from video pixel
+                const color = new THREE.Color(r, g, b);
+                
+                // Update sphere material
+                sphere.material.emissive = color;
+                sphere.material.emissiveIntensity = brightness * 1.5; // Make it glow
+                sphere.material.color = color;
+            });
+        }
+
+        // Clock for animation
+        const clock = new THREE.Clock();
+
+        // Mouse interaction
+        const mouse = new THREE.Vector2();
+        const raycaster = new THREE.Raycaster();
+        let mouseWorldPosition = new THREE.Vector3(0, 0, 0);
+        let isMouseActive = false;
+        const mouseInfluenceRadius = 25; // How far mouse influence extends
+        const mousePushStrength = 2.0; // How much spheres move away from mouse
+        const mouseScaleStrength = 1.5; // How much spheres scale near mouse
+
+        // Random phrases overlay (same style as title, smaller size)
+        const phrases = [
+            'summer days',
+            'long drives by the beach',
+            'april spring sun',
+            'kyoto',
+            'mom and dad',
+            'i miss you',
+            'big blue sky',
+            'i love you', 
+            'shadows',
+            'its my birthday',
+            'peaceful',
+            'ireland 2022',
+            'i love the bay',
+            'again',
+            'home is in san jose',
+            'road runner chasing me',
+            'turned 20',
+            'now im 25',
+            'got stuck in palm springs',
+            'italy in october'
+        ];
+        let hasShownPhrases = false;
+
+        function showPhrasesOnce() {
+            if (hasShownPhrases) return;
+            hasShownPhrases = true;
+
+            let container = document.getElementById('phrases-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'phrases-container';
+                document.body.appendChild(container);
+            }
+
+            const margin = 60;
+            function randomizePhrasePosition(span, text) {
+                let x = 0;
+                let y = 0;
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                const avoidW = window.innerWidth * 0.5;  // central 50% width
+                const avoidH = window.innerHeight * 0.5; // central 50% height
+                // Avoid area near bottom-middle instruction
+                const instrCenterX = window.innerWidth / 2;
+                const instrCenterY = window.innerHeight - 80;
+                const instrAvoidW = window.innerWidth * 0.5;  // wider horizontal buffer
+                const instrAvoidH = 200; // taller band to keep phrases above instruction
+                for (let tries = 0; tries < 20; tries++) {
+                    x = margin + Math.random() * (window.innerWidth - margin * 2);
+                    y = margin + Math.random() * (window.innerHeight - margin * 2);
+                    const clearCenter = Math.abs(x - centerX) > avoidW * 0.5 || Math.abs(y - centerY) > avoidH * 0.5;
+                    const clearInstruction = Math.abs(x - instrCenterX) > instrAvoidW * 0.5 || Math.abs(y - instrCenterY) > instrAvoidH * 0.5;
+                    if (clearCenter && clearInstruction) break;
+                }
+                // Pin "light leaks" toward the left side
+                if (text === 'light leaks') {
+                    x = margin + 20;
+                    y = margin + Math.random() * (window.innerHeight - margin * 2);
+                }
+                span.style.transform = `translate(${x}px, ${y}px)`;
+            }
+
+            phrases.forEach(text => {
+                const span = document.createElement('div');
+                span.className = 'phrase-text';
+                span.textContent = text;
+
+                randomizePhrasePosition(span, text);
+
+                // Give each phrase its own fade timing
+                const duration = 10 + Math.random() * 6; // 10s - 16s for slower pace
+                const delay = Math.random() * 8; // 0 - 8s stagger
+                span.style.animationDuration = `${duration}s`;
+                span.style.animationDelay = `${delay}s`;
+                span.style.animationIterationCount = 'infinite';
+                span.style.animationTimingFunction = 'ease-in-out';
+
+                // Move to a new random spot after each fade cycle
+                span.addEventListener('animationiteration', () => {
+                    randomizePhrasePosition(span, text);
+                });
+
+                container.appendChild(span);
+            });
+        }
+
+        // Track mouse movement
+        renderer.domElement.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            // Use raycaster to find mouse position in 3D space
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Create a plane at z=0 (where the grid is) to intersect with
+            const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+            raycaster.ray.intersectPlane(plane, mouseWorldPosition);
+            
+            // Transform mouse position to grid's local space
+            const worldPos = new THREE.Vector3(mouseWorldPosition.x, mouseWorldPosition.y, mouseWorldPosition.z);
+            worldPos.applyMatrix4(sphereGroup.matrixWorld.clone().invert());
+            mouseWorldPosition.copy(worldPos);
+            
+            isMouseActive = true;
+        });
+
+        renderer.domElement.addEventListener('mouseleave', () => {
+            isMouseActive = false;
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const elapsedTime = clock.getElapsedTime();
+            
+            // Update spheres from video if loaded
+            if (isVideoLoaded) {
+                updateSpheresFromVideo();
+            }
+
+            // Smoothly rotate grid to face forward if rotation is triggered
+            if (isRotating) {
+                const rotationSpeed = 0.05; // Lerp factor for smooth interpolation
+                const rotationDiff = targetRotationX - sphereGroup.rotation.x;
+                if (Math.abs(rotationDiff) > 0.001) {
+                    sphereGroup.rotation.x += rotationDiff * rotationSpeed;
+                } else {
+                    sphereGroup.rotation.x = targetRotationX;
+                    isRotating = false;
+                }
+            }
+
+            // Animate spheres with pulsing effect
+            spheres.forEach((sphere, index) => {
+                const i = Math.floor(index / gridHeight);
+                const j = index % gridHeight;
+                const basePos = basePositions[index];
+                
+                // Create a wave effect based on position
+                const waveX = Math.sin(elapsedTime * 1.5 + i * 0.3) * 0.1;
+                const waveY = Math.cos(elapsedTime * 1.5 + j * 0.3) * 0.1;
+                
+                // Calculate mouse influence
+                let mousePushX = 0;
+                let mousePushY = 0;
+                let mouseScale = 0;
+                
+                if (isMouseActive) {
+                    // Calculate distance from sphere to mouse in 2D (x, y plane)
+                    const sphereX = basePos.x + basePos.scatterX;
+                    const sphereY = basePos.y + basePos.scatterY;
+                    const dx = mouseWorldPosition.x - sphereX;
+                    const dy = mouseWorldPosition.y - sphereY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < mouseInfluenceRadius && distance > 0) {
+                        // Normalize direction and push spheres away from mouse
+                        const pushAmount = (1 - distance / mouseInfluenceRadius) * mousePushStrength;
+                        mousePushX = (dx / distance) * pushAmount;
+                        mousePushY = (dy / distance) * pushAmount;
+                        
+                        // Scale spheres based on proximity to mouse
+                        const scaleAmount = (1 - distance / mouseInfluenceRadius) * mouseScaleStrength;
+                        mouseScale = scaleAmount;
+                    }
+                }
+                
+                // Pulse scale - enhance if video is loaded, add mouse influence
+                const basePulse = isVideoLoaded ? 1.1 : 1;
+                const pulse = basePulse + Math.sin(elapsedTime * 2 + (i + j) * 0.2) * 0.15 + mouseScale;
+                
+                // Apply transformations
+                sphere.scale.set(pulse, pulse, pulse);
+                
+                // Calculate flow intensity based on distance from edge
+                // Closer to edge = more flow (0 at center, 1 at edge)
+                const flowIntensity = 1 - basePos.distFromEdge;
+                
+                // Unified flowing movement for all spheres (gradient from center to edge)
+                const baseDriftAmount = 0.15; // Base movement for all spheres
+                const edgeDriftAmount = 0.4; // Additional movement for edge spheres
+                const totalDriftAmount = baseDriftAmount + (edgeDriftAmount * flowIntensity);
+                
+                // Smooth, organic flow using multiple sine waves
+                const driftX = Math.sin(elapsedTime * 0.8 + i * 0.2 + j * 0.15) * totalDriftAmount;
+                const driftY = Math.cos(elapsedTime * 0.9 + i * 0.15 + j * 0.2) * totalDriftAmount;
+                const driftZ = Math.sin(elapsedTime * 1.0 + (i + j) * 0.1) * totalDriftAmount * 0.6;
+                
+                // Apply position with base, scatter, wave, unified drift, and mouse push
+                sphere.position.x = basePos.x + basePos.scatterX + driftX + mousePushX;
+                sphere.position.y = basePos.y + basePos.scatterY + driftY + mousePushY;
+                sphere.position.z = basePos.z + basePos.scatterZ + (waveX + waveY) * 0.5 + driftZ;
+            });
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+
+        const instructionText = document.getElementById('instruction-text');
+
+        function setInstruction(text) {
+            if (instructionText) {
+                instructionText.textContent = text;
+            }
+        }
+
+        // Video playlist - add your video files here
+        const videoPlaylist = [
+            './videos/waves-kyoto.MOV',
+            './videos/19th-birthday.MP4',
+            './videos/rome2025.MOV',
+            './videos/clouds.MOV',
+            './videos/puddles2025.mov',
+            './videos/april-10-2025.MOV',
+            './videos/april-12-2025.MOV',
+            './videos/new-years2025.MOV',
+            './videos/sfbeach2024.MOV',
+            './videos/windmills2024.MOV',
+            './videos/two-souls2022.MOV',
+            './videos/july2022.MOV',
+            './videos/momdad.mov',
+            './videos/baybridgedays.MOV',
+            './videos/camanche2022.MOV',
+            // Add more videos here, for example:
+            // './videos/video2.mp4',
+            // './videos/video3.mp4',
+        ];
+        
+        let currentVideoIndex = -1; // Start at -1 so first click loads index 0
+
+        // Input trigger (spacebar) - cycle through videos
+        const blurredEchoesText = document.getElementById('blurred-echoes-text');
+        let hasBlurred = false;
+        let hasRotated = false;
+        let isLoadingVideo = false;
+        
+        function handleNewMemoryTrigger(e) {
+            if (e) e.preventDefault();
+            if (isLoadingVideo) return;
+            
+            // Blur the text on first click
+            if (!hasBlurred) {
+                blurredEchoesText.classList.add('blurred');
+                hasBlurred = true;
+            }
+            
+            // Show random phrases on first click
+            showPhrasesOnce();
+
+            // Rotate grid to face forward on first click
+            if (!hasRotated) {
+                targetRotationX = 0; // Face forward (0 degrees)
+                isRotating = true;
+                hasRotated = true;
+            }
+            
+            // Cycle to next video
+            currentVideoIndex = (currentVideoIndex + 1) % videoPlaylist.length;
+            const videoUrl = videoPlaylist[currentVideoIndex];
+            
+            // Stop and reset current video
+            video.pause();
+            isVideoLoaded = false;
+            
+            // Update instruction text
+            isLoadingVideo = true;
+            setInstruction('loading new memory...');
+            
+            // Remove old event listeners by removing and re-adding them
+            const newVideoElement = video.cloneNode(false);
+            video.parentNode.replaceChild(newVideoElement, video);
+            newVideoElement.id = 'video-element';
+            
+            // Update the global video reference
+            video = document.getElementById('video-element');
+            
+            // Set up new event listeners
+            video.addEventListener('loadeddata', () => {
+                setInstruction('press spacebar for new memory');
+                isLoadingVideo = false;
+            }, { once: true });
+            
+            video.addEventListener('error', () => {
+                console.error(`Error loading video: ${videoUrl}`);
+                setInstruction('press spacebar for new memory');
+                isLoadingVideo = false;
+                alert(`Could not load video: ${videoUrl}. Please make sure the file exists in the same folder as this HTML file.`);
+            }, { once: true });
+            
+            // Load the new video
+            video.src = videoUrl;
+            video.loop = true;
+            video.muted = true;
+            video.playsInline = true;
+            video.play().then(() => {
+                isVideoLoaded = true;
+                console.log(`Video ${currentVideoIndex + 1} loaded and playing: ${videoUrl}`);
+            }).catch(err => {
+                console.error('Error playing video:', err);
+                setInstruction('press spacebar for new memory');
+                isLoadingVideo = false;
+            });
+        }
+
+        // Spacebar handler
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                handleNewMemoryTrigger(e);
+            }
+        });
+    </script>
+</body>
+</html>
+

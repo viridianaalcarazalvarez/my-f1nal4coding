@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECHOES</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #000000 0%, #000000 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .text-container {
+            text-align: center;
+            opacity: 0;
+            animation: fadeInUp 1s ease-out forwards;
+        }
+
+        .text {
+            font-size: 3.5rem;
+            font-weight: 300;
+            color: rgb(255, 255, 255);
+            letter-spacing: 0.1em;
+            text-shadow: 2px 2px 10px rgba(255, 255, 255, 0.3);
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+            }
+            to {
+                opacity: 0;
+            }
+        }
+
+        .fade-out {
+            animation: fadeOut 0.8s ease-out forwards;
+        }
+    </style>
+</head>
+<body>
+    <div class="text-container" id="textContainer">
+        <div class="text">ECHOES</div>
+    </div>
+
+    <script>
+        // Show the text with animation
+        const textContainer = document.getElementById('textContainer');
+        
+        // After 2.5 seconds, fade out and redirect
+        setTimeout(() => {
+            textContainer.classList.add('fade-out');
+            
+            // Redirect after fade out animation completes
+            setTimeout(() => {
+                window.location.href = 'main.html';
+            }, 800);
+        }, 2500);
+    </script>
+</body>
+</html>
+
